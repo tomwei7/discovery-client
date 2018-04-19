@@ -24,6 +24,7 @@ REGISTERGAP = 30
 
 RENEW_INTERVAL = 30
 CRON_MIN_INTERNAL = 1
+LONG_POLL_TIMEOUT = 30
 
 
 Config = namedtuple(
@@ -157,7 +158,7 @@ class BaseClient(object):
 
 class Client(BaseClient):
 
-    def __init__(self, config, timeout=None, threads=1, accuracy=1):
+    def __init__(self, config, timeout=None, threads=2, accuracy=1):
         """
         new sync discovery client
 
@@ -168,6 +169,9 @@ class Client(BaseClient):
         """
         if timeout is None:
             timeout = socket._GLOBAL_DEFAULT_TIMEOUT
+        if threads < 2:
+            threads = 2
+            LOG.warning('worker threads must greater than 1')
         self._timeout = timeout
         self._crontab = Crontab(threads, accuracy)
         super().__init__(config)
@@ -218,24 +222,26 @@ class Client(BaseClient):
                 self._send(register_req)
         return renew_callback
 
-    def _send(self, req):
+    def _send(self, req, timeout=None):
         """
         send http request
 
         :param Request req: http request
         :rtype: dict
         """
-        resp = urlopen(req, timeout=self._timeout)
+        if timeout is None:
+            timeout = self._timeout
+        resp = urlopen(req, timeout=timeout)
         resp_obj = json.loads(resp.read().decode())
         if resp_obj['code']:
             raise DiscoveryError(code=resp_obj['code'], message=resp_obj['message'])
         return resp_obj
 
     def _start_daemon(self):
-        self._crontab.add_task('daemon-polls', 300, self._polls)
+        self._crontab.add_task('daemon-polls', LONG_POLL_TIMEOUT, self._polls)
 
     def _polls(self):
-        resp_obj = self._send(self._polls_req())
+        resp_obj = self._send(self._polls_req(), timeout=LONG_POLL_TIMEOUT)
         apps = resp_obj['data']
         broadcast_tree_ids = []
         for tree_id, instances in apps.items():
