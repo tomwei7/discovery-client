@@ -232,7 +232,7 @@ class Client(BaseClient):
         return resp_obj
 
     def _start_daemon(self):
-        self._crontab.add_task('daemon-polls', 10, self._polls)
+        self._crontab.add_task('daemon-polls', 300, self._polls)
 
     def _polls(self):
         resp_obj = self._send(self._polls_req())

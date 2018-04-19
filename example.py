@@ -3,7 +3,7 @@
 import time
 import logging
 
-from discovery.client import Client, Config
+from discovery import Client, Config
 
 
 def main():
