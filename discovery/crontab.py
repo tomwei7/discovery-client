@@ -76,7 +76,10 @@ class Crontab(object):
             task = self._pick()
             if task is not None:
                 LOG.info('run task %s in %s', task.name, current_thread().name)
-                task.run()
+                try:
+                    task.run()
+                except Exception as e:
+                    LOG.error('task raise exception %s', str(e))
                 task.release()
                 continue
             time.sleep(self._accuracy)
