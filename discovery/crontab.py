@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 import time
 import logging
+import traceback
 
 from threading import Lock, Thread, current_thread
 from typing import Callable, Union
@@ -80,6 +81,7 @@ class Crontab(object):
                     task.run()
                 except Exception as e:
                     LOG.error('task raise exception %s', str(e))
+                    traceback.print_exc()
                 task.release()
                 continue
             time.sleep(self._accuracy)

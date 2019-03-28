@@ -8,7 +8,7 @@ from collections import namedtuple
 from urllib.request import Request, urlopen
 
 from .crontab import Crontab
-from .util import sign_params
+from .util import sort_urlencode
 
 LOG = logging.getLogger('discovery')
 
@@ -19,32 +19,35 @@ CANCEL_API = "http://{domain}/discovery/cancel"
 RENEW_API = "http://{domain}/discovery/renew"
 POLL_API = "http://{domain}/discovery/polls"
 NODES_API = "http://{domain}/discovery/nodes"
+FETCH_API = "http://{domain}/discovery/fetch"
+
 STATUS_UP = "1"
+STATUS_WATING = "2"
+STATUS_ALL = "3"
+
 REGISTERGAP = 30
 
 RENEW_INTERVAL = 30
 CRON_MIN_INTERNAL = 1
-LONG_POLL_TIMEOUT = 30
+LONG_POLL_TIMEOUT = 60
 
 
 Config = namedtuple(
-    'Config', ['domain', 'key', 'secret', 'region', 'zone', 'env', 'host'])
+    'Config', ['domain', 'region', 'zone', 'env', 'host'])
 
 
-def config_from_env(domain, key, secret):
+def config_from_env(domain, **kwargs):
     """
     create config from env
 
     :param str domain: discovery domain
-    :param str key: app key
-    :param str secret: app secret
     :rtype: Config
     """
-    region = os.getenv('REGION', '')
-    zone = os.getenv('ZONE', '')
-    env = os.getenv('DEPLOY_ENV', '')
-    host = socket.gethostname()
-    return Config(domain=domain, key=key, secret=secret, region=region, zone=zone, env=env, host=host)
+    region = kwargs.get('region', os.getenv('REGION', ''))
+    zone = kwargs.get('zone', os.getenv('ZONE', ''))
+    env = kwargs.get('deploy_env', os.getenv('DEPLOY_ENV', ''))
+    host = kwargs.get('hostname', socket.gethostname())
+    return Config(domain=domain, region=region, zone=zone, env=env, host=host)
 
 
 class DiscoveryError(Exception):
@@ -73,67 +76,64 @@ class BaseClient(object):
     def reload(self, config):
         raise NotImplementedError('oops!')
 
-    def register(self, app_id, tree_id, http, rpc, weight, color, version='', metadata=None):
+    def register(self, app_id, addr, **kwargs):
         raise NotImplementedError('oops!')
 
-    def watch(self, tree_id, callback):
+    def watch(self, app_id, callback):
         """
-        watch tree_id invoke callback when service change
+        watch app_id invoke callback when service change.
 
         :param str tree_id: tree_id
         :param callback:
         """
         if not callable(callback):
             raise TypeError('callback %s not callable', callback)
-        self._watch_list[tree_id] = callback
+        self._watch_list[app_id] = callback
 
-    def unwatch(self, tree_id):
-        if tree_id in self._watch_list:
-            self._watch_list.pop(tree_id)
+    def fetch(self, app_id):
+        raise NotImplementedError('oops!')
 
-    def fetch(self, tree_id):
-        if tree_id not in self._apps:
-            return []
-        return self._apps[tree_id]['instances']
+    def unwatch(self, app_id):
+        """
+        unwatch app_id remove app_id from watch list.
+
+        :param str app_id: app_id
+        """
+        if app_id in self._watch_list:
+            self._watch_list.pop(app_id)
 
     def _start_daemon(self):
         raise NotImplementedError('oops!')
 
-    def _register_req(self, app_id, tree_id, http, rpc, weight, color, version='', metadata=None):
+    def _register_req(self, app_id, addrs, metadata=None):
         """
+        :param str app_id: app_id
+        :param list[str] addrs: addrs to register, e.g. ['http://10.0.1.2:8000', 'grpc://10.0.1.2:5001']
         :rtype: Request
         """
         params = self._common_params()
         params['appid'] = app_id
-        params['treeid'] = tree_id
-        params['http'] = http
-        params['rpc'] = rpc
         params['status'] = STATUS_UP
-        params['weight'] = weight
-        params['color'] = color
-        params['version'] = version
+        params['addrs'] = ','.join(addrs)
         params['metadata'] = '{}' if metadata is None else json.dumps(metadata)
-        data = sign_params(params, self._config.key, self._config.secret)
-        return Request(self._url_for(REGISTER_API), data, method='POST')
+        return Request(self._url_for(REGISTER_API), sort_urlencode(params).encode(), method='POST')
 
-    def _renew_req(self, app_id, tree_id):
+    def _renew_req(self, app_id):
         """
         :rtype: Request
         """
         params = self._common_params()
         params['appid'] = app_id
-        params['treeid'] = tree_id
-        params = sign_params(params, self._config.key, self._config.secret)
-        return Request(self._url_for(RENEW_API), params, method='POST')
+        return Request(self._url_for(RENEW_API), sort_urlencode(params).encode(), method='POST')
 
-    def _common_params(self):
+    def _common_params(self, **kwargs):
         """
         :rtype: dict
         """
-        return dict(region=self._config.region,
-                    zone=self._config.zone,
-                    env=self._config.host,
-                    hostname=self._config.host)
+        env = self._config.env if 'env' not in kwargs else kwargs['env']
+        zone = self._config.zone if 'zone' not in kwargs else kwargs['zone']
+        region = self._config.region if 'region' not in kwargs else kwargs['region']
+        return dict(region=region, zone=zone, env=env, hostname=self._config.host)
 
     def _polls_req(self):
         """
@@ -142,12 +142,17 @@ class BaseClient(object):
         :rtype: Request
         """
         params = self._common_params()
-        tree_ids = self._watch_list.keys()
-        params['treeid'] = ','.join(map(lambda x: str(x), tree_ids))
-        latest_timestamps = [self._apps['tree_id'] if tree_id in self._apps else 0 for tree_id in tree_ids]
+        app_ids = self._watch_list.keys()
+        params['appid'] = ','.join(map(lambda x: str(x), app_ids))
+        latest_timestamps = [self._apps[app_id]['latest_timestamp'] if app_id in self._apps else 0 for app_id in app_ids]
         params['latest_timestamp'] = ','.join(map(lambda x: str(x), latest_timestamps))
-        params = sign_params(params, self._config.key, self._config.secret)
-        return Request(self._url_for(POLL_API) + '?' + params.decode(), method='GET')
+        return Request(self._url_for(POLL_API) + '?' + sort_urlencode(params), method='GET')
+
+    def _fetch_req(self, app_id, status, **kwargs):
+        params = self._common_params(**kwargs)
+        params['appid'] = app_id
+        params['status'] = status
+        return Request(self._url_for(FETCH_API) + '?' + sort_urlencode(params), method='GET')
 
     def _url_for(self, api_url):
         """
@@ -179,46 +184,50 @@ class Client(BaseClient):
     def stop(self):
         self._crontab.stop()
 
-    def register(self, app_id, tree_id, http, rpc, weight, color, version='', metadata=None):
+    def register(self, app_id, addrs, **kwargs):
         """
         register instance
 
         :param str app_id: app_id
-        :param str tree_id: tree_id
-        :param str http: http addr
-        :param str rpc: rpc addr
-        :param int weight: weight
-        :param str color: color
-        :param version: version
+        :param addrs list[str]: addrs to register, e.g. ['http://10.0.1.2:8000', 'grpc://10.0.1.2:5001']
         """
-        LOG.info('register instance app_id: %s tree_id: %s http: %s rpc: %s weight: %s'
-                 'color: %s version: %s metadata: %s',
-                 app_id, tree_id, http, rpc, weight, color, version, metadata)
-        req = self._register_req(app_id, tree_id, http, rpc, weight, color, version, metadata)
+        metadata = {}
+        LOG.info('register instance app_id: %s addrs: %s metadata: %s',
+                 app_id, addrs, metadata)
+        req = self._register_req(app_id, addrs, metadata)
         self._send(req)
-        name = 'renew_{}_{}'.format(app_id, tree_id)
-        self._crontab.add_task(name, REGISTERGAP, self._renew(app_id, tree_id, req))
+        name = 'renew_{}'.format(app_id)
+        self._crontab.add_task(name, REGISTERGAP, self._renew(app_id, req))
 
-    def _renew(self, app_id, tree_id, register_req):
+    def fetch(self, app_id, status=STATUS_UP, **kwargs):
+        """
+        fetch instance from discovery.
+
+        :param str app_id: app_id
+        """
+        req = self._fetch_req(app_id, status, **kwargs)
+        resp = self._send(req)
+        return resp['data']['instances']
+
+    def _renew(self, app_id, register_req):
         """
         return renew callback function
 
         :param str app_id:
-        :param str tree_id:
         :param Request register_req:
         """
 
-        renew_req = self._renew_req(app_id, tree_id)
+        renew_req = self._renew_req(app_id)
 
         def renew_callback():
             try:
-                LOG.info('renew app_id %s, tree_id %s', app_id, tree_id)
+                LOG.info('renew app_id %s', app_id)
                 self._send(renew_req)
             except DiscoveryError as e:
                 if e.code != -404:
                     raise
                 # re register
-                LOG.info('reregister app_id %s, tree_id %s', app_id, tree_id)
+                LOG.info('reregister app_id %s', app_id)
                 self._send(register_req)
         return renew_callback
 
@@ -238,23 +247,25 @@ class Client(BaseClient):
         return resp_obj
 
     def _start_daemon(self):
-        self._crontab.add_task('daemon-polls', LONG_POLL_TIMEOUT, self._polls)
+        self._crontab.add_task('daemon-polls', 3, self._polls)
 
     def _polls(self):
+        if not len(self._watch_list):
+            return
         resp_obj = self._send(self._polls_req(), timeout=LONG_POLL_TIMEOUT)
         apps = resp_obj['data']
-        broadcast_tree_ids = []
-        for tree_id, instances in apps.items():
-            if tree_id not in self._apps:
-                broadcast_tree_ids.append(tree_id)
-            elif instances['latest_timestamp'] != self._apps[tree_id]['latest_timestamp']:
-                broadcast_tree_ids.append(tree_id)
+        broadcast_app_ids = []
+        for app_id, instances in apps.items():
+            if app_id not in self._apps:
+                broadcast_app_ids.append(app_id)
+            elif instances['latest_timestamp'] != self._apps[app_id]['latest_timestamp']:
+                broadcast_app_ids.append(app_id)
         self._apps = apps
-        self._broadcast(broadcast_tree_ids)
+        self._broadcast(broadcast_app_ids)
 
-    def _broadcast(self, tree_ids):
-        for tree_id in tree_ids:
-            if tree_id not in self._watch_list:
-                LOG.warning('tree_id %s not in watch list', tree_id)
+    def _broadcast(self, app_ids):
+        for app_id in app_ids:
+            if app_id not in self._watch_list:
+                LOG.warning('app_id %s not in watch list', app_id)
                 continue
-            self._watch_list[tree_id]()
+            self._watch_list[app_id](self._apps[app_id]['instances'])
