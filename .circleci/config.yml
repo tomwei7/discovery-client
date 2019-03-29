@@ -13,7 +13,7 @@ workflows:
             branches:
               only:
                 - master
-          context: pypi
+          context: PYPI
 jobs:
   deploy:
     docker:
