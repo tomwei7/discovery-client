@@ -1,5 +1,8 @@
 # discovery-client
 
+[![CircleCI](https://circleci.com/gh/tomwei7/discovery-client.svg?style=svg)](https://circleci.com/gh/tomwei7/discovery-client)
+[![PyPI version](https://badge.fury.io/py/python-discovery-client.svg)](https://badge.fury.io/py/python-discovery-client)
+
 python client for discovery https://github.com/bilibili/discovery only support python3.
 
 ### Install

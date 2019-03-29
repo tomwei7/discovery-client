@@ -10,7 +10,7 @@ def readme():
 
 setup(
     name='python-discovery-client',
-    version='0.1',
+    version='0.2',
     license="MIT",
     author='tomwei7',
     url='https://github.com/tomwei7/discovery-client',
