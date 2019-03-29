@@ -9,7 +9,7 @@ def readme():
 
 
 setup(
-    name='discovery-client',
+    name='python-discovery-client',
     version='0.1',
     license="MIT",
     author='tomwei7',
