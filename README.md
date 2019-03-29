@@ -5,7 +5,7 @@ python client for discovery https://github.com/bilibili/discovery only support p
 ### Install
 
 ```bash
-pip install discovery-client
+pip install python-discovery-client
 ```
 
 ### Usage

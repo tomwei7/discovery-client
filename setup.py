@@ -21,6 +21,7 @@ setup(
         "Programming Language :: Python :: 3 :: Only",
     ],
     long_description=readme(),
+    long_description_content_type='text/markdown',
     python_requires='>=3.5',
     packages=find_packages(exclude=["tests"]),
 )
