@@ -12,13 +12,14 @@ logging.basicConfig(level=logging.INFO)
 class TestDiscovery(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.domain = os.getenv('DISCOVERY_DOMAIN', None)
-        if cls.domain is None:
-            cls.skipTest('DISCOVERY_DOMAIN not set')
         os.environ['DEPLOY_ENV'] = 'uat'
         os.environ['ZONE'] = 'sh001'
+        cls.domain = os.getenv('DISCOVERY_DOMAIN', None)
 
     def test_watch(self):
+        if self.domain is None:
+            self.skipTest('DISCOVERY_DOMAIN not set')
+
         def callback_fn(input_instances):
             self.assertTrue(len(input_instances) == 2)
         client1 = Client(config_from_env(self.domain, hostname='testhost1'))

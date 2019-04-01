@@ -54,7 +54,7 @@ class DiscoveryError(Exception):
     def __init__(self, code, message):
         self.code = code
         self.message = message
-        super().__init__('discovery error code: {}, message: {}'.format(code, message))
+        super(DiscoveryError, self).__init__('discovery error code: {}, message: {}'.format(code, message))
 
 
 class BaseClient(object):
@@ -179,7 +179,7 @@ class Client(BaseClient):
             LOG.warning('worker threads must greater than 1')
         self._timeout = timeout
         self._crontab = Crontab(threads, accuracy)
-        super().__init__(config)
+        super(Client, self).__init__(config)
 
     def stop(self):
         self._crontab.stop()
