@@ -4,7 +4,6 @@ import logging
 import traceback
 
 from threading import Lock, Thread, current_thread
-from typing import Callable, Union
 
 LOG = logging.getLogger('crontab')
 
